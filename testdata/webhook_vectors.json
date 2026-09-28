@@ -1,0 +1,485 @@
+{
+  "generated_by": "scripts/sdk-vectors.mts",
+  "vectors": [
+    {
+      "name": "standard webhooks spec vector",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"test\": 2432232314}",
+      "headers": {
+        "webhook-id": "msg_p5jXN8AQM9LWM0D4loKWxJek",
+        "webhook-timestamp": "1614265330",
+        "webhook-signature": "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE="
+      },
+      "now": 1614265330,
+      "expect": {
+        "test": 2432232314
+      }
+    },
+    {
+      "name": "standard webhooks spec vector, wrong signature",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"test\": 2432232314}",
+      "headers": {
+        "webhook-id": "msg_p5jXN8AQM9LWM0D4loKWxJek",
+        "webhook-timestamp": "1614265330",
+        "webhook-signature": "v1,Ceo5qEr07ixe2NLpvHk3FH9bwy/WavXrAFQ/9tdO6mc="
+      },
+      "now": 1614265330,
+      "expect": null,
+      "error": "No matching signature found"
+    },
+    {
+      "name": "signed by the worker",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928worker0001",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,U/nTgp7FHcXnoEYnzAihF/CYVyTORNSTeyBlvOsKPFM="
+      },
+      "now": 1790000000,
+      "expect": {
+        "type": "invoice.paid",
+        "timestamp": "2026-09-28T00:00:00.000Z",
+        "data": {
+          "invoice_id": "inv_1",
+          "name": "請求書",
+          "amount": 1200
+        }
+      }
+    },
+    {
+      "name": "signed by the worker during a rotation, new secret",
+      "secret": "whsec_dGhpcyBpcyBhbm90aGVyIHNlY3JldCBrZXk=",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928rotate0001",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,xth4ZcYF0iR6NnD1C9TYqRRnKytxb28sDeyb6iCU7AM= v1,s+eMySL7NxJc3G5H1ZLCyQaY/wQN5dHWorHg1QKkQrY="
+      },
+      "now": 1790000000,
+      "expect": {
+        "type": "invoice.paid",
+        "timestamp": "2026-09-28T00:00:00.000Z",
+        "data": {
+          "invoice_id": "inv_1",
+          "name": "請求書",
+          "amount": 1200
+        }
+      }
+    },
+    {
+      "name": "signed by the worker during a rotation, old secret",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928rotate0001",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,xth4ZcYF0iR6NnD1C9TYqRRnKytxb28sDeyb6iCU7AM= v1,s+eMySL7NxJc3G5H1ZLCyQaY/wQN5dHWorHg1QKkQrY="
+      },
+      "now": 1790000000,
+      "expect": {
+        "type": "invoice.paid",
+        "timestamp": "2026-09-28T00:00:00.000Z",
+        "data": {
+          "invoice_id": "inv_1",
+          "name": "請求書",
+          "amount": 1200
+        }
+      }
+    },
+    {
+      "name": "signed by the node sdk",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ="
+      },
+      "now": 1790000000,
+      "expect": {
+        "type": "invoice.paid",
+        "timestamp": "2026-09-28T00:00:00.000Z",
+        "data": {
+          "invoice_id": "inv_1",
+          "name": "請求書",
+          "amount": 1200
+        }
+      }
+    },
+    {
+      "name": "signed by the official library",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928official01",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,dJICBrgSiA4t50FBjDEgvDtm5ZG6MlSkfOkIsht7Wsw="
+      },
+      "now": 1790000000,
+      "expect": {
+        "type": "invoice.paid",
+        "timestamp": "2026-09-28T00:00:00.000Z",
+        "data": {
+          "invoice_id": "inv_1",
+          "name": "請求書",
+          "amount": 1200
+        }
+      }
+    },
+    {
+      "name": "secret without whsec_ prefix",
+      "secret": "MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ="
+      },
+      "now": 1790000000,
+      "expect": {
+        "type": "invoice.paid",
+        "timestamp": "2026-09-28T00:00:00.000Z",
+        "data": {
+          "invoice_id": "inv_1",
+          "name": "請求書",
+          "amount": 1200
+        }
+      }
+    },
+    {
+      "name": "changed body",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1201}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ="
+      },
+      "now": 1790000000,
+      "expect": null,
+      "error": "No matching signature found"
+    },
+    {
+      "name": "trailing space in body",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}} ",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ="
+      },
+      "now": 1790000000,
+      "expect": null,
+      "error": "No matching signature found"
+    },
+    {
+      "name": "changed id",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_other",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ="
+      },
+      "now": 1790000000,
+      "expect": null,
+      "error": "No matching signature found"
+    },
+    {
+      "name": "changed timestamp",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "1790000001",
+        "webhook-signature": "v1,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ="
+      },
+      "now": 1790000000,
+      "expect": null,
+      "error": "No matching signature found"
+    },
+    {
+      "name": "wrong secret",
+      "secret": "whsec_dGhpcyBpcyBhbm90aGVyIHNlY3JldCBrZXk=",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ="
+      },
+      "now": 1790000000,
+      "expect": null,
+      "error": "No matching signature found"
+    },
+    {
+      "name": "rotation: old first",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,xAOb6poAWBHBIuWb+xFpMEmIOeZGzSTOgaI1DsVfO94= v1,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ="
+      },
+      "now": 1790000000,
+      "expect": {
+        "type": "invoice.paid",
+        "timestamp": "2026-09-28T00:00:00.000Z",
+        "data": {
+          "invoice_id": "inv_1",
+          "name": "請求書",
+          "amount": 1200
+        }
+      }
+    },
+    {
+      "name": "rotation: new first",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ= v1,xAOb6poAWBHBIuWb+xFpMEmIOeZGzSTOgaI1DsVfO94="
+      },
+      "now": 1790000000,
+      "expect": {
+        "type": "invoice.paid",
+        "timestamp": "2026-09-28T00:00:00.000Z",
+        "data": {
+          "invoice_id": "inv_1",
+          "name": "請求書",
+          "amount": 1200
+        }
+      }
+    },
+    {
+      "name": "v2 only",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v2,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ="
+      },
+      "now": 1790000000,
+      "expect": null,
+      "error": "No matching signature found"
+    },
+    {
+      "name": "empty signature",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,"
+      },
+      "now": 1790000000,
+      "expect": null,
+      "error": "No matching signature found"
+    },
+    {
+      "name": "garbage signature",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,@@@ nonsense v1"
+      },
+      "now": 1790000000,
+      "expect": null,
+      "error": "No matching signature found"
+    },
+    {
+      "name": "too old",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ="
+      },
+      "now": 1790000301,
+      "expect": null,
+      "error": "Message timestamp too old"
+    },
+    {
+      "name": "just inside tolerance (old)",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ="
+      },
+      "now": 1790000300,
+      "expect": {
+        "type": "invoice.paid",
+        "timestamp": "2026-09-28T00:00:00.000Z",
+        "data": {
+          "invoice_id": "inv_1",
+          "name": "請求書",
+          "amount": 1200
+        }
+      }
+    },
+    {
+      "name": "too new",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ="
+      },
+      "now": 1789999699,
+      "expect": null,
+      "error": "Message timestamp too new"
+    },
+    {
+      "name": "just inside tolerance (new)",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ="
+      },
+      "now": 1789999700,
+      "expect": {
+        "type": "invoice.paid",
+        "timestamp": "2026-09-28T00:00:00.000Z",
+        "data": {
+          "invoice_id": "inv_1",
+          "name": "請求書",
+          "amount": 1200
+        }
+      }
+    },
+    {
+      "name": "custom tolerance 600",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ="
+      },
+      "now": 1790000500,
+      "tolerance": 600,
+      "expect": {
+        "type": "invoice.paid",
+        "timestamp": "2026-09-28T00:00:00.000Z",
+        "data": {
+          "invoice_id": "inv_1",
+          "name": "請求書",
+          "amount": 1200
+        }
+      }
+    },
+    {
+      "name": "custom tolerance 0",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ="
+      },
+      "now": 1790000001,
+      "tolerance": 0,
+      "expect": null,
+      "error": "Message timestamp too old"
+    },
+    {
+      "name": "missing webhook-id",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ="
+      },
+      "now": 1790000000,
+      "expect": null,
+      "error": "Missing required headers"
+    },
+    {
+      "name": "missing webhook-timestamp",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-signature": "v1,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ="
+      },
+      "now": 1790000000,
+      "expect": null,
+      "error": "Missing required headers"
+    },
+    {
+      "name": "missing webhook-signature",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "1790000000"
+      },
+      "now": 1790000000,
+      "expect": null,
+      "error": "Missing required headers"
+    },
+    {
+      "name": "non-numeric timestamp",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "abc",
+        "webhook-signature": "v1,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ="
+      },
+      "now": 1790000000,
+      "expect": null,
+      "error": "Invalid webhook-timestamp header"
+    },
+    {
+      "name": "exponent timestamp",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "1e9",
+        "webhook-signature": "v1,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ="
+      },
+      "now": 1790000000,
+      "expect": null,
+      "error": "Invalid webhook-timestamp header"
+    },
+    {
+      "name": "huge timestamp",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "{\"type\":\"invoice.paid\",\"timestamp\":\"2026-09-28T00:00:00.000Z\",\"data\":{\"invoice_id\":\"inv_1\",\"name\":\"請求書\",\"amount\":1200}}",
+      "headers": {
+        "webhook-id": "msg_20260928nodesdk001",
+        "webhook-timestamp": "99999999999999999999",
+        "webhook-signature": "v1,tkSOE0gHm1W9I0cbUMLaVOOYaXOlV1zb5+i5BiJ6GdQ="
+      },
+      "now": 1790000000,
+      "expect": null,
+      "error": "Invalid webhook-timestamp header"
+    },
+    {
+      "name": "signed body that is not JSON",
+      "secret": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+      "payload": "not json",
+      "headers": {
+        "webhook-id": "msg_20260928notjson001",
+        "webhook-timestamp": "1790000000",
+        "webhook-signature": "v1,n4KFspWsgEnoAmBEo8otJbE1wUrq125qWz+dk4CDTlk="
+      },
+      "now": 1790000000,
+      "expect": null,
+      "error": "Payload is not valid JSON"
+    }
+  ]
+}
