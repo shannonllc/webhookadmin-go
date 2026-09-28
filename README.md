@@ -80,11 +80,19 @@ http.HandleFunc("/webhooks", func(w http.ResponseWriter, r *http.Request) {
 | `Endpoints.List(ctx, *EndpointListParams)` | `GET /v1/endpoints` |
 | `Endpoints.Get(ctx, id)` | `GET /v1/endpoints/:id` |
 | `Endpoints.Update(ctx, id, EndpointUpdateParams)` | `PATCH /v1/endpoints/:id` |
+| `Endpoints.TestDestination(ctx, DestinationTestParams)` | `POST /v1/destinations/test` |
 | `Endpoints.Delete(ctx, id)` | `DELETE /v1/endpoints/:id` |
 | `Endpoints.RotateSecret(ctx, id)` | `POST /v1/endpoints/:id/rotate-secret` |
 | `Endpoints.SendTest(ctx, id, *EndpointSendTestParams)` | `POST /v1/endpoints/:id/test` |
 | `Endpoints.Recover(ctx, id, RecoverParams)` | `POST /v1/endpoints/:id/recover` |
 | `Endpoints.Recovery(ctx, id, recoveryID)` | `GET /v1/endpoints/:id/recoveries/:rid` |
+| `Endpoints.GetTransformation(ctx, id)` | `GET /v1/endpoints/:id/transformation` |
+| `Endpoints.SetTransformation(ctx, id, TransformationSetParams)` | `PUT /v1/endpoints/:id/transformation` |
+| `Endpoints.DeleteTransformation(ctx, id)` | `DELETE /v1/endpoints/:id/transformation` |
+| `Endpoints.TestTransformation(ctx, id, *TransformationTestParams)` | `POST /v1/endpoints/:id/transformation/test` |
+| `Endpoints.ListPollerTokens(ctx, id)` | `GET /v1/endpoints/:id/poller-tokens` |
+| `Endpoints.CreatePollerToken(ctx, id, *PollerTokenCreateParams)` | `POST /v1/endpoints/:id/poller-tokens` |
+| `Endpoints.DeletePollerToken(ctx, id, tokenID)` | `DELETE /v1/endpoints/:id/poller-tokens/:tid` |
 | `Portal.CreateLink(ctx, consumerID, *PortalLinkParams)` | `POST /v1/consumers/:id/portal` |
 | `EventTypes.List(ctx)` | `GET /v1/event-types` |
 | `EventTypes.Create(ctx, EventTypeCreateParams)` | `POST /v1/event-types` |
@@ -142,6 +150,77 @@ client.Endpoints.Update(ctx, "ep_...", webhookadmin.EndpointUpdateParams{
 
 `Content: "body"` has no replay protection. Use `timestamp_body` (signs `{webhook-timestamp}.{body}`) if you can, and move receivers to `Webhook.Verify`. Send `Null[CompatSignature]()` to remove it.
 
+### Polling endpoints
+
+A polling endpoint has no URL: the receiver fetches its messages with a poller token (`sk_poll_…`), which can only read that endpoint. Starter plan and above.
+
+```go
+// sender (API key)
+ep, err := client.Endpoints.Create(ctx, webhookadmin.EndpointCreateParams{ConsumerID: "con_...", Type: webhookadmin.EndpointPolling})
+tk, err := client.Endpoints.CreatePollerToken(ctx, ep.ID, &webhookadmin.PollerTokenCreateParams{Name: "erp"}) // tk.Token is returned only here
+```
+
+The receiver needs only the endpoint ID and the token:
+
+```go
+poller, err := webhookadmin.NewPoller("ep_...", "sk_poll_...")
+it := poller.Pages(&webhookadmin.PollParams{Iterator: loadIterator()}) // "" the first time: start of your plan's retention
+for it.Next(ctx) {
+	page := it.Current()
+	for _, m := range page.Data {
+		handle(m.Payload) // {"type", "timestamp", "data"}
+	}
+	saveIterator(page.Iterator)
+}
+if err := it.Err(); err != nil {
+	log.Fatal(err)
+}
+```
+
+`Pages` stops after a page with `Done` true (nothing more right now); run it again later with the saved iterator. Delivery is at least once: the next call with a page's `Iterator` acknowledges that page, and calling with an older iterator returns the same messages again, so deduplicate by `m.ID` if needed. `Poll(ctx, *PollParams)` fetches one page (`Limit` 1 to 250, default 50; `EventTypes` narrows the event types; `After` starts from that time when there is no iterator), and `Messages` walks the messages of `Pages` one by one. `NewPoller` takes the same options as `NewClient` (`WithBaseURL`, `WithTimeout`, `WithMaxRetries`, `WithHTTPClient`). `m.Headers` carries the same `webhook-id`, `webhook-timestamp` and `webhook-signature` as a pushed webhook; checking the signature is optional, since the connection is already authenticated by the token.
+
+### Transformations
+
+A transformation is JavaScript that runs right before every attempt to an endpoint and can change the payload, headers, method (`POST` / `PUT` / `PATCH`) or the path and query of the URL, or cancel the delivery. The signature covers the transformed body. Pro plan and above.
+
+```go
+code := `function handler(webhook) {
+  webhook.payload = { text: webhook.eventType };
+  return webhook;
+}`
+res, err := client.Endpoints.TestTransformation(ctx, "ep_...", &webhookadmin.TransformationTestParams{
+	Code:    code,
+	Payload: map[string]any{"invoice_id": "inv_1"},
+}) // res.Result: "send", "cancel" or "error"; nothing is sent
+_, err = client.Endpoints.SetTransformation(ctx, "ep_...", webhookadmin.TransformationSetParams{Code: code})
+```
+
+`TransformationSetParams` sends only the fields you set; the others keep their current values (`Code` is required only when the endpoint has no transformation yet, up to 51,200 characters). `Variables` (up to 50 string values, up to 4 KB as JSON) are read-only in the code as `webhook.env`, and `SendMessageParams.TransformationsParams` (a JSON object up to 4 KB) arrives as `webhook.transformationsParams`:
+
+```go
+_, err = client.Endpoints.SetTransformation(ctx, "ep_...", webhookadmin.TransformationSetParams{
+	Variables: webhookadmin.Value(map[string]string{"TOKEN": "..."}), // Null[map[string]string]() removes them
+})
+_, err = client.Endpoints.SetTransformation(ctx, "ep_...", webhookadmin.TransformationSetParams{Enabled: webhookadmin.Bool(false)}) // keep the code, stop applying it
+```
+
+`GetTransformation` returns an error matching `ErrNotFound` when the endpoint has none. A delivery cancelled by the transformation has the status `cancelled` (not a failure; not retried). `Attempt.Transform` is `"changed"` or `"error"` when the transformation changed the request or failed.
+
+### Moving from Svix
+
+Keep the signing secret your receivers already verify, and send the message data as the body as Svix does:
+
+```go
+ep, err := client.Endpoints.Create(ctx, webhookadmin.EndpointCreateParams{
+	ConsumerID: "con_...",
+	URL:        "https://example.com/wh",
+	Secret:     "whsec_...",
+	BodyFormat: webhookadmin.BodyFormatRaw,
+})
+```
+
+`Secret` is `whsec_` and standard base64 of 24 to 75 bytes, and only on create (use `RotateSecret` later). With `BodyFormatRaw` the signature covers that raw body; the default `BodyFormatStandard` sends `{"type", "timestamp", "data"}`. `EndpointUpdateParams.BodyFormat` changes it later.
+
 ### Pagination
 
 `List` returns one page (`Items`, `NextCursor`). `ListAll` walks every item across pages:
@@ -186,7 +265,7 @@ if errors.As(err, &e) && errors.Is(err, webhookadmin.ErrValidation) {
 | Response | Retried |
 |---|---|
 | 429 | Always. Waits for `retry-after`, or until `x-ratelimit-reset`. |
-| 5xx, connection error, timeout | Only requests that are safe to repeat: `GET`, `PATCH`, `DELETE`, `Messages.Send`, `Portal.CreateLink` |
+| 5xx, connection error, timeout | Only requests that are safe to repeat: `GET`, `PUT`, `PATCH`, `DELETE`, `Messages.Send`, `Portal.CreateLink`, `Endpoints.TestTransformation` |
 | Other 4xx | Never |
 
 Backoff starts at 0.5 s, doubles up to 8 s, with ±25% jitter. `Messages.Send` generates an `Idempotency-Key` when you omit it and sends the same key on every retry, so a retried send is delivered once. Keys are kept for 24 hours. Cancelling the context stops the request and the retries.

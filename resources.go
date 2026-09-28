@@ -11,6 +11,13 @@ import (
 
 func esc(id string) string { return url.PathEscape(id) }
 
+func sinceString(ms int64) string {
+	if ms == 0 {
+		return ""
+	}
+	return strconv.FormatInt(ms, 10)
+}
+
 func limitString(n int) string {
 	if n == 0 {
 		return ""
@@ -98,7 +105,7 @@ func (s *MessagesService) Send(ctx context.Context, params SendMessageParams, op
 }
 
 func (s *MessagesService) page(ctx context.Context, p MessageListParams, cursor string, rc requestConfig) (*Page[MessageSummary], error) {
-	q := url.Values{"status": {string(p.Status)}, "event_type": {p.EventType}, "q": {p.Q}, "limit": {limitString(p.Limit)}, "cursor": {cursor}}
+	q := url.Values{"status": {string(p.Status)}, "event_type": {p.EventType}, "q": {p.Q}, "since": {sinceString(p.Since)}, "limit": {limitString(p.Limit)}, "cursor": {cursor}}
 	var out Page[MessageSummary]
 	if err := s.c.do(ctx, request{method: "GET", path: "/v1/messages", query: q, idempotent: true}, &out, rc); err != nil {
 		return nil, err
@@ -179,7 +186,8 @@ type EndpointsService struct{ c *Client }
 
 func epPath(id, rest string) string { return "/v1/endpoints/" + esc(id) + rest }
 
-// Create creates an endpoint. The signing secret is returned only here. Requires endpoints:write.
+// Create creates an endpoint. The signing secret is returned only here. Set Type to EndpointPolling (and no URL)
+// for an endpoint the receiver polls; then create a poller token with CreatePollerToken. Requires endpoints:write.
 func (s *EndpointsService) Create(ctx context.Context, params EndpointCreateParams, opts ...RequestOption) (*EndpointWithSecret, error) {
 	var out EndpointWithSecret
 	if err := s.c.do(ctx, request{method: "POST", path: "/v1/endpoints", body: params}, &out, s.c.config(opts)); err != nil {
@@ -259,6 +267,77 @@ func (s *EndpointsService) SendTest(ctx context.Context, endpointID string, para
 		return nil, err
 	}
 	return &out, nil
+}
+
+// TestDestination sends one test message to a destination other than a webhook right away and returns the result.
+// Nothing is recorded. Counts toward the daily limit of test sends. Not retried. Pro plan and above. Requires endpoints:write.
+func (s *EndpointsService) TestDestination(ctx context.Context, params DestinationTestParams, opts ...RequestOption) (*DestinationTestResult, error) {
+	var out DestinationTestResult
+	if err := s.c.do(ctx, request{method: "POST", path: "/v1/destinations/test", body: params}, &out, s.c.config(opts)); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// GetTransformation returns the endpoint's transformation. Returns ErrNotFound when there is none. Requires logs:read.
+func (s *EndpointsService) GetTransformation(ctx context.Context, endpointID string, opts ...RequestOption) (*Transformation, error) {
+	var out Transformation
+	if err := s.c.do(ctx, request{method: "GET", path: epPath(endpointID, "/transformation"), idempotent: true}, &out, s.c.config(opts)); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SetTransformation saves the endpoint's transformation, which runs right before every attempt.
+// The signature covers the transformed body. Fields that are not set keep their current values.
+// Pro plan and above (Enabled: Bool(false) alone works on any plan). Requires endpoints:write.
+func (s *EndpointsService) SetTransformation(ctx context.Context, endpointID string, params TransformationSetParams, opts ...RequestOption) (*Transformation, error) {
+	var out Transformation
+	if err := s.c.do(ctx, request{method: "PUT", path: epPath(endpointID, "/transformation"), body: params, idempotent: true}, &out, s.c.config(opts)); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DeleteTransformation removes the endpoint's transformation. Requires endpoints:write.
+func (s *EndpointsService) DeleteTransformation(ctx context.Context, endpointID string, opts ...RequestOption) error {
+	return s.c.do(ctx, request{method: "DELETE", path: epPath(endpointID, "/transformation"), idempotent: true}, nil, s.c.config(opts))
+}
+
+// TestTransformation runs a transformation against a sample payload and returns the result.
+// Nothing is sent or saved. Requires endpoints:write.
+func (s *EndpointsService) TestTransformation(ctx context.Context, endpointID string, params *TransformationTestParams, opts ...RequestOption) (*TransformationTestResult, error) {
+	var out TransformationTestResult
+	p := derefOr(params)
+	if err := s.c.do(ctx, request{method: "POST", path: epPath(endpointID, "/transformation/test"), body: p, idempotent: true}, &out, s.c.config(opts)); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ListPollerTokens lists the poller tokens of a polling endpoint. Requires logs:read.
+func (s *EndpointsService) ListPollerTokens(ctx context.Context, endpointID string, opts ...RequestOption) (*PollerTokenList, error) {
+	var out PollerTokenList
+	if err := s.c.do(ctx, request{method: "GET", path: epPath(endpointID, "/poller-tokens"), idempotent: true}, &out, s.c.config(opts)); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// CreatePollerToken creates a poller token (sk_poll_…) for a polling endpoint. The token is returned only here;
+// it can only read this endpoint. Up to 5 per endpoint. Starter plan and above. Requires endpoints:write.
+func (s *EndpointsService) CreatePollerToken(ctx context.Context, endpointID string, params *PollerTokenCreateParams, opts ...RequestOption) (*PollerTokenCreated, error) {
+	var out PollerTokenCreated
+	p := derefOr(params)
+	if err := s.c.do(ctx, request{method: "POST", path: epPath(endpointID, "/poller-tokens"), body: p}, &out, s.c.config(opts)); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DeletePollerToken deletes a poller token. It stops working right away. Requires endpoints:write.
+func (s *EndpointsService) DeletePollerToken(ctx context.Context, endpointID, tokenID string, opts ...RequestOption) error {
+	return s.c.do(ctx, request{method: "DELETE", path: epPath(endpointID, "/poller-tokens/"+esc(tokenID)), idempotent: true}, nil, s.c.config(opts))
 }
 
 // EventTypesService registers event types.

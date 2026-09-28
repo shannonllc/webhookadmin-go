@@ -459,7 +459,7 @@ func TestPagination(t *testing.T) {
 			jsonReply(200, map[string]any{"items": []any{}, "next_cursor": nil}),
 		)
 		c, _ := testClient(t, f)
-		p, err := c.Messages.List(ctx, &MessageListParams{Limit: 2, Status: MessageFailed})
+		p, err := c.Messages.List(ctx, &MessageListParams{Limit: 2, Status: MessageFailed, Since: 1790000000000})
 		if err != nil || len(p.Items) != 2 || p.NextCursor != "c1" {
 			t.Fatal(p, err)
 		}
@@ -475,7 +475,7 @@ func TestPagination(t *testing.T) {
 		for _, cl := range f.Calls() {
 			qs = append(qs, cl.Query)
 		}
-		want := []string{"limit=2&status=failed", "limit=2&status=failed", "cursor=c1&limit=2&status=failed", "cursor=c2&limit=2&status=failed"}
+		want := []string{"limit=2&since=1790000000000&status=failed", "limit=2&status=failed", "cursor=c1&limit=2&status=failed", "cursor=c2&limit=2&status=failed"}
 		if !reflect.DeepEqual(qs, want) {
 			t.Fatal(qs)
 		}
