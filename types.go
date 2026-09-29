@@ -266,7 +266,7 @@ type BodyFormat string
 const (
 	// BodyFormatStandard sends the Standard Webhooks body {"type", "timestamp", "data"}.
 	BodyFormatStandard BodyFormat = "standard"
-	// BodyFormatRaw sends the message data itself (as Svix does).
+	// BodyFormatRaw sends the message data itself.
 	BodyFormatRaw BodyFormat = "raw"
 )
 
@@ -342,7 +342,7 @@ type EndpointCreateParams struct {
 	Ordering Ordering `json:"ordering,omitempty"`
 	// BodyFormat defaults to BodyFormatStandard.
 	BodyFormat BodyFormat `json:"body_format,omitempty"`
-	// Secret is an existing signing secret to keep, such as one moved from Svix: "whsec_" and standard base64 of
+	// Secret is an existing signing secret to keep, such as one from another webhook service: "whsec_" and standard base64 of
 	// 24 to 75 bytes ("whsec_" may be omitted). Empty generates one. It cannot be set on update (use RotateSecret).
 	Secret string `json:"secret,omitempty"`
 }

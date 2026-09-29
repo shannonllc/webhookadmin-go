@@ -206,9 +206,9 @@ _, err = client.Endpoints.SetTransformation(ctx, "ep_...", webhookadmin.Transfor
 
 `GetTransformation` returns an error matching `ErrNotFound` when the endpoint has none. A delivery cancelled by the transformation has the status `cancelled` (not a failure; not retried). `Attempt.Transform` is `"changed"` or `"error"` when the transformation changed the request or failed.
 
-### Moving from Svix
+### Moving from another webhook service
 
-Keep the signing secret your receivers already verify, and send the message data as the body as Svix does:
+Keep the signing secret your receivers already verify, and send the message data as the body:
 
 ```go
 ep, err := client.Endpoints.Create(ctx, webhookadmin.EndpointCreateParams{
