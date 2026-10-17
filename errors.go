@@ -88,7 +88,7 @@ type Error struct {
 	Code string
 	// Fields has per-field messages for validation errors.
 	Fields map[string]string
-	// RequestID (x-request-id, or Cloudflare's cf-ray) to quote when contacting support.
+	// RequestID to quote when contacting support.
 	RequestID string
 	// RetryAfter is the wait from retry-after on a 429, or nil.
 	RetryAfter *time.Duration

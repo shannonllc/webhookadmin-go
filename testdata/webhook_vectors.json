@@ -1,5 +1,5 @@
 {
-  "generated_by": "scripts/sdk-vectors.mts",
+  "generated_by": "Webhook Admin signature test vectors",
   "vectors": [
     {
       "name": "standard webhooks spec vector",

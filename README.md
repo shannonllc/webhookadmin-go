@@ -76,6 +76,7 @@ http.HandleFunc("/webhooks", func(w http.ResponseWriter, r *http.Request) {
 | `Deliveries.Retry(ctx, id)` | `POST /v1/deliveries/:id/retry` |
 | `Consumers.Create(ctx, ConsumerCreateParams)` | `POST /v1/consumers` |
 | `Consumers.List(ctx, *ConsumerListParams)` / `Consumers.ListAll(*ConsumerListParams)` | `GET /v1/consumers` |
+| `Consumers.Delete(ctx, id)` | `DELETE /v1/consumers/:id` |
 | `Endpoints.Create(ctx, EndpointCreateParams)` | `POST /v1/endpoints` |
 | `Endpoints.List(ctx, *EndpointListParams)` | `GET /v1/endpoints` |
 | `Endpoints.Get(ctx, id)` | `GET /v1/endpoints/:id` |
@@ -97,6 +98,14 @@ http.HandleFunc("/webhooks", func(w http.ResponseWriter, r *http.Request) {
 | `EventTypes.List(ctx)` | `GET /v1/event-types` |
 | `EventTypes.Create(ctx, EventTypeCreateParams)` | `POST /v1/event-types` |
 | `EventTypes.Ensure(ctx, []EventTypeCreateParams)` | `GET` and `POST /v1/event-types` |
+| `Sources.Create(ctx, SourceCreateParams)` | `POST /v1/sources` |
+| `Sources.List(ctx, *SourceListParams)` / `Sources.ListAll(*SourceListParams)` | `GET /v1/sources` |
+| `Sources.Get(ctx, id)` | `GET /v1/sources/:id` |
+| `Sources.Update(ctx, id, SourceUpdateParams)` | `PATCH /v1/sources/:id` |
+| `Sources.Delete(ctx, id)` | `DELETE /v1/sources/:id` |
+| `Sources.SetSecret(ctx, id, secret)` / `Sources.RemoveSecret(ctx, id)` | `PUT /v1/sources/:id/secret` |
+| `Sources.ListRequests(ctx, id, *SourceRequestListParams)` / `Sources.ListAllRequests(id, *SourceRequestListParams)` | `GET /v1/sources/:id/requests` |
+| `Sources.ReprocessRequest(ctx, id, requestID)` | `POST /v1/sources/:id/requests/:request_id/reprocess` |
 
 Every method also takes request options as trailing arguments: `WithRequestTimeout(d)`, `WithRequestMaxRetries(n)`.
 
@@ -206,6 +215,48 @@ _, err = client.Endpoints.SetTransformation(ctx, "ep_...", webhookadmin.Transfor
 
 `GetTransformation` returns an error matching `ErrNotFound` when the endpoint has none. A delivery cancelled by the transformation has the status `cancelled` (not a failure; not retried). `Attempt.Transform` is `"changed"` or `"error"` when the transformation changed the request or failed.
 
+### Sources
+
+A source receives webhooks from another service at its own URL, verifies their signatures and turns them into messages of a consumer, delivered to that consumer's endpoints like messages you send. Register `src.URL` with the other service.
+
+```go
+src, err := client.Sources.Create(ctx, webhookadmin.SourceCreateParams{
+	Name:       "Stripe",
+	Provider:   webhookadmin.SourceStripe,
+	ConsumerID: "con_...",
+	Secret:     "whsec_...", // the other service's signing secret
+})
+fmt.Println(src.URL) // https://api.webhookadmin.com/in/...
+```
+
+```go
+// After fixing a wrong secret, process the rejected webhooks again
+it := client.Sources.ListAllRequests(src.ID, &webhookadmin.SourceRequestListParams{Status: webhookadmin.SourceRequestRejected})
+for it.Next(ctx) {
+	if r := it.Current(); r.Reprocessable {
+		if _, err := client.Sources.ReprocessRequest(ctx, src.ID, r.ID); err != nil {
+			log.Print(err)
+		}
+	}
+}
+```
+
+The URL accepts `POST`, `PUT`, `PATCH` and `DELETE` with a body of up to 10 MB. `Provider` is one of:
+
+| Provider | Verifies | `Config` |
+|---|---|---|
+| `SourceStripe`, `SourceGitHub`, `SourceShopify`, `SourceSlack`, `SourceZoom` | The service's signature | |
+| `SourceMeta` | Meta's signature, and answers the subscription check | `VerifyToken` |
+| `SourceStandard` | Standard Webhooks signatures | |
+| `SourceHMAC` | An HMAC-SHA256 of the body | `Header` (required), `Encoding`, `Prefix` |
+| `SourceBasic` | Basic authentication (the secret is the password) | `Username` (required) |
+| `SourceAPIKey` | The secret in a header or a query parameter | `Header` (and `Prefix`, such as `"Bearer "`) or `Query` |
+| `SourceNone` | Nothing | |
+
+For `SourceHMAC`, `SourceBasic`, `SourceAPIKey` and `SourceNone`, `Config.EventTypeField` reads the event type from a body field and `Config.IDHeader` drops duplicate deliveries. For every provider, `Config.ForwardHeaders` passes received headers on to the endpoints (up to 20), and `Config.Response` sets the reply when a webhook is accepted.
+
+`SetSecret` changes the secret (the previous one is still accepted for 24 hours) and `RemoveSecret` removes it. `ListRequests` / `ListAllRequests` return what the source received, newest first, with the status (`accepted`, `duplicate`, `rejected` or `held`), the reason and the message it became; `SourceRequestListParams.Status` lists only one status. A paused source still accepts webhooks and holds them (`Source.Held` is the number waiting); they become messages when you set it back to `SourceActive`. A message received by a source has `Message.Source` (with `RequestID`, the request it was made from). The number of sources depends on the plan; `Create` returns an error matching `ErrPlanLimit` beyond it.
+
 ### Moving from another webhook service
 
 Keep the signing secret your receivers already verify, and send the message data as the body:
@@ -246,7 +297,7 @@ Every error is a `*webhookadmin.Error` with `Kind`, `Status`, `Code`, `Message`,
 | `ErrNotFound` | 404 |
 | `ErrValidation` | 400, 413, 422 |
 | `ErrPlanLimit` | 402 |
-| `ErrConflict` | 409 |
+| `ErrConflict` | 409 (`Code` is `endpoint_disabled` when retrying, testing or bulk-resending to a disabled endpoint: fix it and set `Status` to `EndpointActive` first) |
 | `ErrRateLimit` | 429 |
 | `ErrAPI` | other, including 5xx |
 | `ErrConnection` | no response, or the context was cancelled |

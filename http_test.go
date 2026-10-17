@@ -33,8 +33,8 @@ func TestClientOptions(t *testing.T) {
 		}
 	})
 
-	t.Run("user agent is parsed by the worker", func(t *testing.T) {
-		// apps/worker/src/auth.ts の sdkOf と同じ正規表現
+	t.Run("user agent is parsed by the server", func(t *testing.T) {
+		// サーバーが User-Agent を読むときと同じ形の正規表現
 		if !regexp.MustCompile(`(?:^|\s)(webhookadmin-[a-z]+)/(\d+\.\d+\.\d+)(?:\s|$)`).MatchString(UserAgent) {
 			t.Fatal(UserAgent)
 		}
@@ -66,8 +66,8 @@ func TestClientOptions(t *testing.T) {
 		if c.BaseURL() != "https://api.webhookadmin.com" {
 			t.Fatal(c.BaseURL())
 		}
-		c, _ = NewClient("sk_test_x", WithBaseURL("http://localhost:8787//"))
-		if c.BaseURL() != "http://localhost:8787" {
+		c, _ = NewClient("sk_test_x", WithBaseURL("http://api.example.test//"))
+		if c.BaseURL() != "http://api.example.test" {
 			t.Fatal(c.BaseURL())
 		}
 		if c.timeout != DefaultTimeout || c.maxRetries != DefaultMaxRetries || c.httpClient == nil {

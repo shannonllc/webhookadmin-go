@@ -140,7 +140,10 @@ func (s *MessagesService) Get(ctx context.Context, messageID string, opts ...Req
 // DeliveriesService retries deliveries.
 type DeliveriesService struct{ c *Client }
 
-// Retry sends a finished delivery again. A delivery still being sent returns ErrConflict. Requires messages:retry.
+// Retry sends a finished delivery again. A delivery still being sent returns ErrConflict (Code "conflict").
+// If the endpoint is disabled, it returns ErrConflict with Code "endpoint_disabled" and nothing is sent: fix the
+// endpoint, set Status to EndpointActive with Endpoints.Update, then retry. A paused endpoint holds the retry until
+// it is resumed. A deleted endpoint returns ErrNotFound. Requires messages:retry.
 func (s *DeliveriesService) Retry(ctx context.Context, deliveryID string, opts ...RequestOption) error {
 	return s.c.do(ctx, request{method: "POST", path: "/v1/deliveries/" + esc(deliveryID) + "/retry"}, nil, s.c.config(opts))
 }
@@ -155,6 +158,12 @@ func (s *ConsumersService) Create(ctx context.Context, params ConsumerCreatePara
 		return nil, err
 	}
 	return &out, nil
+}
+
+// Delete deletes a consumer with its endpoints and the sources that deliver to it. Portal links stop working and
+// deliveries not yet sent are not sent. A missing consumer returns ErrNotFound. Requires consumers:write.
+func (s *ConsumersService) Delete(ctx context.Context, consumerID string, opts ...RequestOption) error {
+	return s.c.do(ctx, request{method: "DELETE", path: "/v1/consumers/" + esc(consumerID), idempotent: true}, nil, s.c.config(opts))
 }
 
 func (s *ConsumersService) page(ctx context.Context, p ConsumerListParams, cursor string, rc requestConfig) (*Page[Consumer], error) {
@@ -241,7 +250,8 @@ func (s *EndpointsService) RotateSecret(ctx context.Context, endpointID string, 
 
 // Recover resends every delivery to this endpoint that ended failed, for messages created at or after Since,
 // as the same messages (same webhook-id). It runs in the background; check it with Recovery.
-// The endpoint must be active. Requires messages:retry.
+// The endpoint must be active: a disabled endpoint returns ErrConflict with Code "endpoint_disabled", a paused one
+// ErrConflict with Code "conflict". Requires messages:retry.
 func (s *EndpointsService) Recover(ctx context.Context, endpointID string, params RecoverParams, opts ...RequestOption) (*Recovery, error) {
 	var out Recovery
 	if err := s.c.do(ctx, request{method: "POST", path: epPath(endpointID, "/recover"), body: params}, &out, s.c.config(opts)); err != nil {
@@ -259,7 +269,8 @@ func (s *EndpointsService) Recovery(ctx context.Context, endpointID, recoveryID 
 	return &out, nil
 }
 
-// SendTest sends a test message to this endpoint only. Not counted in usage. Requires messages:send.
+// SendTest sends a test message to this endpoint only. Not counted in usage. A disabled endpoint returns ErrConflict
+// with Code "endpoint_disabled". Requires messages:send.
 func (s *EndpointsService) SendTest(ctx context.Context, endpointID string, params *EndpointSendTestParams, opts ...RequestOption) (*SendTestResponse, error) {
 	var out SendTestResponse
 	p := derefOr(params)
@@ -410,6 +421,127 @@ func (s *EventTypesService) Ensure(ctx context.Context, types []EventTypeCreateP
 		}
 	}
 	return res, nil
+}
+
+// SourcesService manages sources: URLs that receive webhooks from other services (Stripe, GitHub and so on),
+// verify their signatures and turn them into messages of a consumer.
+type SourcesService struct{ c *Client }
+
+func srcPath(id, rest string) string { return "/v1/sources/" + esc(id) + rest }
+
+// Create creates a source. Register its URL (Source.URL) with the other service.
+// Pass Secret to verify signatures (or set it later with SetSecret). Returns ErrPlanLimit when the plan's
+// number of sources is reached. Requires endpoints:write.
+func (s *SourcesService) Create(ctx context.Context, params SourceCreateParams, opts ...RequestOption) (*Source, error) {
+	var out Source
+	if err := s.c.do(ctx, request{method: "POST", path: "/v1/sources", body: params}, &out, s.c.config(opts)); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (s *SourcesService) page(ctx context.Context, p SourceListParams, cursor string, rc requestConfig) (*Page[Source], error) {
+	q := url.Values{"limit": {limitString(p.Limit)}, "cursor": {cursor}}
+	var out Page[Source]
+	if err := s.c.do(ctx, request{method: "GET", path: "/v1/sources", query: q, idempotent: true}, &out, rc); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// List returns one page of sources, in the order they were created. Requires logs:read.
+func (s *SourcesService) List(ctx context.Context, params *SourceListParams, opts ...RequestOption) (*Page[Source], error) {
+	p := derefOr(params)
+	return s.page(ctx, p, p.Cursor, s.c.config(opts))
+}
+
+// ListAll walks every source across pages. Requires logs:read.
+func (s *SourcesService) ListAll(params *SourceListParams, opts ...RequestOption) *Iter[Source] {
+	p := derefOr(params)
+	rc := s.c.config(opts)
+	return newIter(p.Cursor, func(ctx context.Context, cursor string) (*Page[Source], error) {
+		return s.page(ctx, p, cursor, rc)
+	})
+}
+
+// Get returns a source. Requires logs:read.
+func (s *SourcesService) Get(ctx context.Context, sourceID string, opts ...RequestOption) (*Source, error) {
+	var out Source
+	if err := s.c.do(ctx, request{method: "GET", path: srcPath(sourceID, ""), idempotent: true}, &out, s.c.config(opts)); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Update updates a source. Changing Provider without Config resets the config to its defaults.
+// The signing secret is changed with SetSecret. Requires endpoints:write.
+func (s *SourcesService) Update(ctx context.Context, sourceID string, params SourceUpdateParams, opts ...RequestOption) (*Source, error) {
+	var out Source
+	if err := s.c.do(ctx, request{method: "PATCH", path: srcPath(sourceID, ""), body: params, idempotent: true}, &out, s.c.config(opts)); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Delete deletes a source and the requests it received. Its URL stops working. Requires endpoints:write.
+func (s *SourcesService) Delete(ctx context.Context, sourceID string, opts ...RequestOption) error {
+	return s.c.do(ctx, request{method: "DELETE", path: srcPath(sourceID, ""), idempotent: true}, nil, s.c.config(opts))
+}
+
+// SetSecret sets the secret that verifies the signatures the source receives (whsec_… for SourceStandard).
+// The previous secret is still accepted for 24 hours. Requires endpoints:write.
+func (s *SourcesService) SetSecret(ctx context.Context, sourceID, secret string, opts ...RequestOption) (*Source, error) {
+	return s.putSecret(ctx, sourceID, &secret, opts)
+}
+
+// RemoveSecret removes the signing secret of the source. Requires endpoints:write.
+func (s *SourcesService) RemoveSecret(ctx context.Context, sourceID string, opts ...RequestOption) (*Source, error) {
+	return s.putSecret(ctx, sourceID, nil, opts)
+}
+
+func (s *SourcesService) putSecret(ctx context.Context, sourceID string, secret *string, opts []RequestOption) (*Source, error) {
+	var out Source
+	body := map[string]*string{"secret": secret}
+	if err := s.c.do(ctx, request{method: "PUT", path: srcPath(sourceID, "/secret"), body: body, idempotent: true}, &out, s.c.config(opts)); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (s *SourcesService) requestsPage(ctx context.Context, sourceID string, p SourceRequestListParams, cursor string, rc requestConfig) (*Page[SourceRequest], error) {
+	q := url.Values{"limit": {limitString(p.Limit)}, "status": {string(p.Status)}, "cursor": {cursor}}
+	var out Page[SourceRequest]
+	if err := s.c.do(ctx, request{method: "GET", path: srcPath(sourceID, "/requests"), query: q, idempotent: true}, &out, rc); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ListRequests returns one page of the requests the source received, newest first, within your plan's retention.
+// Set Status to list only accepted, duplicate, rejected or held ones. Requires logs:read.
+func (s *SourcesService) ListRequests(ctx context.Context, sourceID string, params *SourceRequestListParams, opts ...RequestOption) (*Page[SourceRequest], error) {
+	p := derefOr(params)
+	return s.requestsPage(ctx, sourceID, p, p.Cursor, s.c.config(opts))
+}
+
+// ListAllRequests walks every request the source received across pages, newest first. Requires logs:read.
+func (s *SourcesService) ListAllRequests(sourceID string, params *SourceRequestListParams, opts ...RequestOption) *Iter[SourceRequest] {
+	p := derefOr(params)
+	rc := s.c.config(opts)
+	return newIter(p.Cursor, func(ctx context.Context, cursor string) (*Page[SourceRequest], error) {
+		return s.requestsPage(ctx, sourceID, p, cursor, rc)
+	})
+}
+
+// ReprocessRequest processes a rejected request again (SourceRequest.Reprocessable) with the source's current secret
+// and settings, such as after fixing a wrong secret, and returns the request with its new status. A request that was
+// not rejected, or whose body was not kept, returns ErrConflict. Not retried on a 5xx. Requires messages:send.
+func (s *SourcesService) ReprocessRequest(ctx context.Context, sourceID, requestID string, opts ...RequestOption) (*SourceRequest, error) {
+	var out SourceRequest
+	if err := s.c.do(ctx, request{method: "POST", path: srcPath(sourceID, "/requests/"+esc(requestID)+"/reprocess")}, &out, s.c.config(opts)); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // PortalService creates consumer portal links.

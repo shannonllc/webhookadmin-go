@@ -11,8 +11,8 @@ import (
 	"time"
 )
 
-// The vectors are signed by the Worker, the Node SDK and the official Standard Webhooks library,
-// with results decided by the Node SDK (scripts/sdk-vectors.mts in the monorepo).
+// The vectors are signed by the server, the Node SDK and the official Standard Webhooks library,
+// with results decided by the Node SDK.
 type vector struct {
 	Name      string            `json:"name"`
 	Secret    string            `json:"secret"`

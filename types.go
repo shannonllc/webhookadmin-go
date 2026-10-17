@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Shapes of /v1 requests and responses (docs/api.md). Times are Unix milliseconds.
+// Shapes of /v1 requests and responses (https://webhookadmin.com/docs/api/). Times are Unix milliseconds.
 
 // Page is one page of a list.
 type Page[T any] struct {
@@ -14,8 +14,10 @@ type Page[T any] struct {
 	NextCursor string `json:"next_cursor"`
 }
 
-// MessageStatus is pending, retrying, success, failed or cancelled.
+// MessageStatus is pending, retrying, success, failed, cancelled or no_endpoint.
 // cancelled means every delivery of the message was cancelled by a transformation.
+// no_endpoint means the consumer had no endpoint for the message when it was accepted. The message is stored but not sent
+// (not even if an endpoint is added later) and is not counted toward the monthly quota.
 type MessageStatus string
 
 // DeliveryStatus is pending, held, retrying, success, failed, cancelled or waiting. held means the endpoint is paused.
@@ -30,11 +32,12 @@ type EndpointStatus string
 type RecoveryStatus string
 
 const (
-	MessagePending   MessageStatus = "pending"
-	MessageRetrying  MessageStatus = "retrying"
-	MessageSuccess   MessageStatus = "success"
-	MessageFailed    MessageStatus = "failed"
-	MessageCancelled MessageStatus = "cancelled"
+	MessagePending    MessageStatus = "pending"
+	MessageRetrying   MessageStatus = "retrying"
+	MessageSuccess    MessageStatus = "success"
+	MessageFailed     MessageStatus = "failed"
+	MessageCancelled  MessageStatus = "cancelled"
+	MessageNoEndpoint MessageStatus = "no_endpoint"
 
 	DeliveryPending   DeliveryStatus = "pending"
 	DeliveryHeld      DeliveryStatus = "held"
@@ -76,9 +79,10 @@ type Attempt struct {
 	DurationMS   int64   `json:"duration_ms"`
 	Error        *string `json:"error"`
 	// Via is "direct" or "relay" for webhooks, "poll" for a polling endpoint (At is when the receiver fetched the message),
-	// or the destination type (such as "sqs") for other destinations.
+	// or the destination type (such as "sqs" or "slack") for other destinations.
 	Via string `json:"via"`
-	// Ref is the ID returned by a destination other than a webhook (SQS MessageId, object key and so on), or nil.
+	// Ref is the ID returned by a destination other than a webhook (SQS MessageId, object key, Chatwork message_id
+	// and so on), or nil. Always nil for slack and teams.
 	Ref *string `json:"ref"`
 	// SourceIP is the static IP used when sent through the relay. nil for direct sends.
 	SourceIP *string `json:"source_ip"`
@@ -95,6 +99,9 @@ type Delivery struct {
 	AttemptCount  int            `json:"attempt_count"`
 	NextAttemptAt *int64         `json:"next_attempt_at"`
 	Attempts      []Attempt      `json:"attempts"`
+	// EndpointStatus is the endpoint's current status, or nil if it was deleted. A delivery to a disabled or
+	// deleted endpoint cannot be retried. Returned since 2026-10-17.
+	EndpointStatus *EndpointStatus `json:"endpoint_status"`
 }
 
 type Message struct {
@@ -107,6 +114,8 @@ type Message struct {
 	// Payload as sent. "null" if it is no longer stored.
 	Payload    json.RawMessage `json:"payload"`
 	Deliveries []Delivery      `json:"deliveries"`
+	// Source is the source the message was received from (with its name at that time), or nil.
+	Source *SourceRef `json:"source"`
 }
 
 type SendMessageParams struct {
@@ -231,6 +240,10 @@ type Endpoint struct {
 
 // EndpointType is "http" (a webhook), "polling" (no URL; the receiver fetches messages with a poller token, see [Poller])
 // or a destination other than a webhook (Pro plan and above).
+//
+// DestinationSlack, DestinationTeams and DestinationChatwork post a chat message instead of the JSON body and are not
+// signed: the message uses the data fields "text" (required for this form), and optionally "title", "lines" (strings)
+// and "link" (https URL); otherwise the title is the event type and the body is the data as JSON.
 type EndpointType string
 
 const (
@@ -247,6 +260,14 @@ const (
 	DestinationServiceBus  EndpointType = "servicebus"
 	DestinationKafka       EndpointType = "kafka"
 	DestinationRabbitMQ    EndpointType = "rabbitmq"
+	// DestinationSlack takes {"credentials": {"webhook_url": "https://hooks.slack.com/services/T…/B…/…"}}
+	// (a Slack Incoming Webhook URL).
+	DestinationSlack EndpointType = "slack"
+	// DestinationTeams takes {"credentials": {"webhook_url": ...}}, a Teams Workflows URL ("When a Teams webhook request
+	// is received") on *.powerplatform.com or *.logic.azure.com. Office 365 connector URLs (webhook.office.com) are rejected.
+	DestinationTeams EndpointType = "teams"
+	// DestinationChatwork takes {"room_id": ..., "credentials": {"api_token": ...}}.
+	DestinationChatwork EndpointType = "chatwork"
 )
 
 // Ordering is the delivery order of an endpoint.
@@ -642,6 +663,205 @@ type EnsureEventTypesResult struct {
 	Created []EventType
 	// Existing event types, as they are stored.
 	Existing []EventType
+}
+
+// SourceProvider is how a source verifies the signatures of the webhooks it receives.
+type SourceProvider string
+
+// SourceStatus is active or paused. A paused source still accepts webhooks (after verifying them) and holds them;
+// they become messages when the source is set back to active. Source.Held is the number waiting.
+type SourceStatus string
+
+// SourceRequestStatus is accepted, duplicate, rejected or held.
+type SourceRequestStatus string
+
+const (
+	// SourceStripe verifies Stripe-Signature.
+	SourceStripe SourceProvider = "stripe"
+	// SourceGitHub verifies X-Hub-Signature-256.
+	SourceGitHub SourceProvider = "github"
+	// SourceShopify verifies X-Shopify-Hmac-Sha256.
+	SourceShopify SourceProvider = "shopify"
+	// SourceSlack verifies X-Slack-Signature and answers url_verification.
+	SourceSlack SourceProvider = "slack"
+	// SourceMeta verifies X-Hub-Signature-256 and answers the subscription check with SourceConfig.VerifyToken.
+	SourceMeta SourceProvider = "meta"
+	// SourceZoom verifies x-zm-signature and answers the URL validation.
+	SourceZoom SourceProvider = "zoom"
+	// SourceStandard verifies Standard Webhooks signatures (the secret is whsec_…).
+	SourceStandard SourceProvider = "standard"
+	// SourceHMAC verifies an HMAC-SHA256 of the body in the header set by SourceConfig.Header.
+	SourceHMAC SourceProvider = "hmac"
+	// SourceBasic checks Basic authentication: SourceConfig.Username and the secret as the password.
+	SourceBasic SourceProvider = "basic"
+	// SourceAPIKey checks the secret in the header SourceConfig.Header or the query parameter SourceConfig.Query.
+	SourceAPIKey SourceProvider = "api_key"
+	// SourceNone does not verify signatures.
+	SourceNone SourceProvider = "none"
+
+	SourceActive SourceStatus = "active"
+	SourcePaused SourceStatus = "paused"
+
+	SourceRequestAccepted  SourceRequestStatus = "accepted"
+	SourceRequestDuplicate SourceRequestStatus = "duplicate"
+	SourceRequestRejected  SourceRequestStatus = "rejected"
+	// SourceRequestHeld was received while the source was paused; it is processed when the source is set back to active.
+	SourceRequestHeld SourceRequestStatus = "held"
+)
+
+// SourceConfig is the settings of a source. Empty fields are left out.
+type SourceConfig struct {
+	// EventType is used when the event type cannot be read from the request. Default "inbound".
+	EventType string `json:"event_type,omitempty"`
+	// EventTypeField is the body field the event type is read from, for SourceHMAC, SourceBasic, SourceAPIKey and
+	// SourceNone ("." for nested fields, numbers for array items).
+	EventTypeField string `json:"event_type_field,omitempty"`
+	// IDHeader is the header that identifies duplicates, for SourceHMAC, SourceBasic, SourceAPIKey and SourceNone.
+	IDHeader string `json:"id_header,omitempty"`
+	// Header is the signature header, required for SourceHMAC. For SourceAPIKey, the header that holds the key
+	// (set Header or Query).
+	Header string `json:"header,omitempty"`
+	// Query is the query parameter that holds the key, for SourceAPIKey.
+	Query string `json:"query,omitempty"`
+	// Algorithm is "sha256", for SourceHMAC.
+	Algorithm string `json:"algorithm,omitempty"`
+	// Encoding is "hex" (default) or "base64", for SourceHMAC.
+	Encoding string `json:"encoding,omitempty"`
+	// Prefix is removed from the signature before comparing, such as "sha256=", for SourceHMAC. For SourceAPIKey,
+	// the prefix of the key header value, such as "Bearer ".
+	Prefix string `json:"prefix,omitempty"`
+	// VerifyToken is compared with hub.verify_token when Meta checks the subscription (a GET to the URL), for SourceMeta.
+	VerifyToken string `json:"verify_token,omitempty"`
+	// Username is the user name, required for SourceBasic. The password is the secret.
+	Username string `json:"username,omitempty"`
+	// ForwardHeaders are received headers passed on to the endpoints as they are (up to 20, lowercase).
+	ForwardHeaders []string `json:"forward_headers,omitempty"`
+	// Response is what to answer when a webhook is accepted. Default 200 with an empty body.
+	Response *SourceResponse `json:"response,omitempty"`
+}
+
+// SourceResponse is what a source answers when it accepts a webhook.
+type SourceResponse struct {
+	// Status is 200 to 299. Default 200.
+	Status int `json:"status"`
+	// ContentType defaults to "text/plain; charset=utf-8".
+	ContentType string `json:"content_type"`
+	// Body is up to 4 KB. Default empty.
+	Body string `json:"body"`
+}
+
+// Source receives webhooks from another service at URL and turns them into messages of a consumer, which are
+// delivered to the consumer's endpoints like messages sent with Messages.Send.
+type Source struct {
+	// ID is src_….
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	Provider   SourceProvider `json:"provider"`
+	ConsumerID string         `json:"consumer_id"`
+	Consumer   ConsumerRef    `json:"consumer"`
+	Status     SourceStatus   `json:"status"`
+	// URL is the URL to register with the other service, such as https://api.webhookadmin.com/in/….
+	URL string `json:"url"`
+	// SecretHint is a masked hint of the signing secret, or nil when there is none.
+	SecretHint *string      `json:"secret_hint"`
+	Config     SourceConfig `json:"config"`
+	// Held is the number of received webhooks held while the source is paused.
+	Held      int   `json:"held"`
+	CreatedAt int64 `json:"created_at"`
+	UpdatedAt int64 `json:"updated_at"`
+}
+
+// SourceRef is the source a message was received from.
+type SourceRef struct {
+	ID string `json:"id"`
+	// Name is the source's name when the message was received.
+	Name string `json:"name"`
+	// RequestID is the received request (sreq_…) the message was made from.
+	RequestID string `json:"request_id,omitempty"`
+}
+
+type SourceCreateParams struct {
+	// Name up to 100 characters.
+	Name     string         `json:"name"`
+	Provider SourceProvider `json:"provider"`
+	// ConsumerID is the consumer whose messages the received webhooks become.
+	ConsumerID string `json:"consumer_id"`
+	// Secret verifies the signatures: whsec_ and base64 for SourceStandard, otherwise printable ASCII without spaces.
+	Secret string        `json:"secret,omitempty"`
+	Config *SourceConfig `json:"config,omitempty"`
+	// Status defaults to SourceActive.
+	Status SourceStatus `json:"status,omitempty"`
+}
+
+// SourceUpdateParams: only the fields that are set are sent.
+type SourceUpdateParams struct {
+	Name       *string
+	Provider   *SourceProvider
+	ConsumerID *string
+	Status     *SourceStatus
+	// Config replaces the settings. When Provider changes and Config is nil, the defaults are used.
+	Config *SourceConfig
+}
+
+// MarshalJSON sends only the fields that are set.
+func (p SourceUpdateParams) MarshalJSON() ([]byte, error) {
+	m := map[string]any{}
+	if p.Name != nil {
+		m["name"] = *p.Name
+	}
+	if p.Provider != nil {
+		m["provider"] = *p.Provider
+	}
+	if p.ConsumerID != nil {
+		m["consumer_id"] = *p.ConsumerID
+	}
+	if p.Status != nil {
+		m["status"] = *p.Status
+	}
+	if p.Config != nil {
+		m["config"] = *p.Config
+	}
+	return json.Marshal(m)
+}
+
+type SourceListParams struct {
+	// Limit is 1 to 100. Default 50.
+	Limit  int
+	Cursor string
+}
+
+// SourceRequest is one request a source received.
+type SourceRequest struct {
+	// ID is sreq_….
+	ID string `json:"id"`
+	At int64  `json:"at"`
+	// Method is POST, PUT, PATCH, DELETE or GET.
+	Method string              `json:"method"`
+	Status SourceRequestStatus `json:"status"`
+	// ResponseStatus is the status code returned to the sender.
+	ResponseStatus int `json:"response_status"`
+	// Reason is why it was rejected (in English), such as "invalid signature", or nil.
+	Reason *string `json:"reason"`
+	// MessageID is the message it became, or nil.
+	MessageID   *string `json:"message_id"`
+	EventType   *string `json:"event_type"`
+	ContentType *string `json:"content_type"`
+	// Size is the body size in bytes.
+	Size int64 `json:"size"`
+	// Headers received, without credentials such as Authorization and Cookie.
+	Headers map[string]string `json:"headers"`
+	// ProcessedAt is when a held or rejected request was processed later (Unix milliseconds), or nil.
+	ProcessedAt *int64 `json:"processed_at"`
+	// Reprocessable is true for a rejected request whose body was kept: Sources.ReprocessRequest can process it again.
+	Reprocessable bool `json:"reprocessable"`
+}
+
+type SourceRequestListParams struct {
+	// Limit is 1 to 100. Default 50.
+	Limit  int
+	Cursor string
+	// Status lists only requests with this status. Empty lists all.
+	Status SourceRequestStatus
 }
 
 // Nullable is an optional field that can also be sent as JSON null. The zero value is "not set".

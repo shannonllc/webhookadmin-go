@@ -30,6 +30,7 @@ type Client struct {
 	Deliveries *DeliveriesService
 	EventTypes *EventTypesService
 	Portal     *PortalService
+	Sources    *SourcesService
 
 	apiKey     string
 	baseURL    string
@@ -89,6 +90,7 @@ func NewClient(apiKey string, opts ...Option) (*Client, error) {
 	c.Deliveries = &DeliveriesService{c}
 	c.EventTypes = &EventTypesService{c}
 	c.Portal = &PortalService{c}
+	c.Sources = &SourcesService{c}
 	return c, nil
 }
 

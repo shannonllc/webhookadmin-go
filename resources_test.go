@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// Each method calls the documented method, path and body (docs/api.md, section 2).
+// Each method calls the documented method, path and body (https://webhookadmin.com/docs/api/).
 func TestResources(t *testing.T) {
 	ctx := context.Background()
 	ok := func() reply { return jsonReply(200, map[string]any{"id": "x"}) }
@@ -39,6 +39,7 @@ func TestResources(t *testing.T) {
 			_, err := c.Consumers.Create(ctx, ConsumerCreateParams{ExternalID: "cus_2", Name: "Acme"})
 			return err
 		}, "POST", "/v1/consumers", `{"external_id":"cus_2","name":"Acme"}`},
+		{"consumers.delete escapes the id", jsonReply(204, nil), func(c *Client) error { return c.Consumers.Delete(ctx, "con_1/x") }, "DELETE", "/v1/consumers/con_1%2Fx", ""},
 		{"endpoints.create minimal", ok(), func(c *Client) error {
 			_, err := c.Endpoints.Create(ctx, EndpointCreateParams{ConsumerID: "con_1", URL: "https://x.example/wh"})
 			return err
@@ -92,6 +93,10 @@ func TestResources(t *testing.T) {
 			_, err := c.Endpoints.Create(ctx, EndpointCreateParams{ConsumerID: "con_1", Type: DestinationSQS, Destination: DestinationParams{"region": "ap-northeast-1", "credentials": map[string]string{"access_key_id": "A"}}})
 			return err
 		}, "POST", "/v1/endpoints", `{"consumer_id":"con_1","type":"sqs","destination":{"credentials":{"access_key_id":"A"},"region":"ap-northeast-1"}}`},
+		{"endpoints.create chat destination", ok(), func(c *Client) error {
+			_, err := c.Endpoints.Create(ctx, EndpointCreateParams{ConsumerID: "con_1", Type: DestinationChatwork, Destination: DestinationParams{"room_id": "123", "credentials": map[string]string{"api_token": "t"}}})
+			return err
+		}, "POST", "/v1/endpoints", `{"consumer_id":"con_1","type":"chatwork","destination":{"credentials":{"api_token":"t"},"room_id":"123"}}`},
 		{"endpoints.update destination", ok(), func(c *Client) error {
 			_, err := c.Endpoints.Update(ctx, "ep_1", EndpointUpdateParams{Destination: DestinationParams{"queue_name": "q"}})
 			return err
@@ -161,6 +166,42 @@ func TestResources(t *testing.T) {
 			_, err := c.EventTypes.Create(ctx, EventTypeCreateParams{Name: "b", Description: "B"})
 			return err
 		}, "POST", "/v1/event-types", `{"name":"b","description":"B"}`},
+		{"sources.create minimal", ok(), func(c *Client) error {
+			_, err := c.Sources.Create(ctx, SourceCreateParams{Name: "Stripe", Provider: SourceStripe, ConsumerID: "con_1"})
+			return err
+		}, "POST", "/v1/sources", `{"name":"Stripe","provider":"stripe","consumer_id":"con_1"}`},
+		{"sources.create full", ok(), func(c *Client) error {
+			_, err := c.Sources.Create(ctx, SourceCreateParams{
+				Name: "ERP", Provider: SourceHMAC, ConsumerID: "con_1", Secret: "s3cret", Status: SourcePaused,
+				Config: &SourceConfig{EventType: "erp", EventTypeField: "event.kind", IDHeader: "x-id", Header: "x-sig", Algorithm: "sha256", Encoding: "base64", Prefix: "sha256="},
+			})
+			return err
+		}, "POST", "/v1/sources", `{"name":"ERP","provider":"hmac","consumer_id":"con_1","secret":"s3cret","config":{"event_type":"erp","event_type_field":"event.kind","id_header":"x-id","header":"x-sig","algorithm":"sha256","encoding":"base64","prefix":"sha256="},"status":"paused"}`},
+		{"sources.get escapes the id", ok(), func(c *Client) error { _, err := c.Sources.Get(ctx, "src/1"); return err }, "GET", "/v1/sources/src%2F1", ""},
+		{"sources.update nothing", ok(), func(c *Client) error {
+			_, err := c.Sources.Update(ctx, "src_1", SourceUpdateParams{})
+			return err
+		}, "PATCH", "/v1/sources/src_1", `{}`},
+		{"sources.update all", ok(), func(c *Client) error {
+			p, st := SourceGitHub, SourceActive
+			_, err := c.Sources.Update(ctx, "src_1", SourceUpdateParams{Name: String("GH"), Provider: &p, ConsumerID: String("con_2"), Status: &st, Config: &SourceConfig{}})
+			return err
+		}, "PATCH", "/v1/sources/src_1", `{"config":{},"consumer_id":"con_2","name":"GH","provider":"github","status":"active"}`},
+		{"sources.delete", jsonReply(204, nil), func(c *Client) error { return c.Sources.Delete(ctx, "src_1") }, "DELETE", "/v1/sources/src_1", ""},
+		{"sources.set_secret", ok(), func(c *Client) error { _, err := c.Sources.SetSecret(ctx, "src_1", "whsec_x"); return err }, "PUT", "/v1/sources/src_1/secret", `{"secret":"whsec_x"}`},
+		{"sources.remove_secret", ok(), func(c *Client) error { _, err := c.Sources.RemoveSecret(ctx, "src_1"); return err }, "PUT", "/v1/sources/src_1/secret", `{"secret":null}`},
+		{"sources.create new settings", ok(), func(c *Client) error {
+			_, err := c.Sources.Create(ctx, SourceCreateParams{
+				Name: "K", Provider: SourceAPIKey, ConsumerID: "con_1", Secret: "key",
+				Config: &SourceConfig{Header: "authorization", Prefix: "Bearer ", Query: "key", VerifyToken: "vt", Username: "user",
+					ForwardHeaders: []string{"x-request-id"}, Response: &SourceResponse{Status: 202, ContentType: "application/json", Body: `{"ok":true}`}},
+			})
+			return err
+		}, "POST", "/v1/sources", `{"name":"K","provider":"api_key","consumer_id":"con_1","secret":"key","config":{"header":"authorization","query":"key","prefix":"Bearer ","verify_token":"vt","username":"user","forward_headers":["x-request-id"],"response":{"status":202,"content_type":"application/json","body":"{\"ok\":true}"}}}`},
+		{"sources.reprocess_request escapes the ids", ok(), func(c *Client) error {
+			_, err := c.Sources.ReprocessRequest(ctx, "src/1", "sreq/1")
+			return err
+		}, "POST", "/v1/sources/src%2F1/requests/sreq%2F1/reprocess", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -186,6 +227,7 @@ func TestResources(t *testing.T) {
 			func() error { _, err := c.Messages.Send(ctx, SendMessageParams{}); return err },
 			func() error { _, err := c.Messages.Get(ctx, "m"); return err },
 			func() error { _, err := c.Consumers.Create(ctx, ConsumerCreateParams{}); return err },
+			func() error { return c.Consumers.Delete(ctx, "c") },
 			func() error { _, err := c.Endpoints.Create(ctx, EndpointCreateParams{}); return err },
 			func() error { _, err := c.Endpoints.List(ctx, nil); return err },
 			func() error { _, err := c.Endpoints.Get(ctx, "e"); return err },
@@ -207,6 +249,15 @@ func TestResources(t *testing.T) {
 			func() error { _, err := c.EventTypes.List(ctx); return err },
 			func() error { _, err := c.EventTypes.Create(ctx, EventTypeCreateParams{}); return err },
 			func() error { _, err := c.EventTypes.Ensure(ctx, nil); return err },
+			func() error { _, err := c.Sources.Create(ctx, SourceCreateParams{}); return err },
+			func() error { _, err := c.Sources.List(ctx, nil); return err },
+			func() error { _, err := c.Sources.Get(ctx, "s"); return err },
+			func() error { _, err := c.Sources.Update(ctx, "s", SourceUpdateParams{}); return err },
+			func() error { return c.Sources.Delete(ctx, "s") },
+			func() error { _, err := c.Sources.SetSecret(ctx, "s", "x"); return err },
+			func() error { _, err := c.Sources.RemoveSecret(ctx, "s"); return err },
+			func() error { _, err := c.Sources.ListRequests(ctx, "s", nil); return err },
+			func() error { _, err := c.Sources.ReprocessRequest(ctx, "s", "r"); return err },
 		}
 		for i, op := range ops {
 			if err := op(); !errors.Is(err, ErrNotFound) {
@@ -276,6 +327,22 @@ func TestResources(t *testing.T) {
 		}
 		d, err := c.Endpoints.Get(ctx, "ep_1")
 		if err != nil || d.Type != DestinationSQS || d.Destination["credentials_hint"] != "AKIA…MPLE" || *d.Recent[0].Ref != "m-1" {
+			t.Fatal(d, err)
+		}
+	})
+
+	t.Run("chat destination decoding", func(t *testing.T) {
+		f := newFakeAPI(t,
+			rawReply(200, `{"ok":true,"via":"slack","response_status":200,"duration_ms":30,"error":null,"response_head":null,"ref":null}`),
+			rawReply(200, `{"id":"ep_2","type":"teams","url":"teams://example.logic.azure.com","destination":{"credentials_hint":"example.logic.azure.com …abcd"},"recent":[{"id":"att_1","via":"teams","ref":null}]}`),
+		)
+		c, _ := testClient(t, f)
+		r, err := c.Endpoints.TestDestination(ctx, DestinationTestParams{Type: DestinationSlack, Destination: DestinationParams{"credentials": map[string]string{"webhook_url": "https://hooks.slack.com/services/T0001/B0001/x"}}})
+		if err != nil || !r.OK || r.Via != DestinationSlack || r.Ref != nil {
+			t.Fatal(r, err)
+		}
+		d, err := c.Endpoints.Get(ctx, "ep_2")
+		if err != nil || d.Type != DestinationTeams || d.URL != "teams://example.logic.azure.com" || d.Recent[0].Via != string(DestinationTeams) || d.Recent[0].Ref != nil {
 			t.Fatal(d, err)
 		}
 	})
@@ -350,6 +417,125 @@ func TestResources(t *testing.T) {
 		p, err := c.Endpoints.List(ctx, &EndpointListParams{ConsumerID: "con_1"})
 		if err != nil || len(p.Items) != 1 || p.NextCursor != "" || f.Last().Query != "consumer_id=con_1" {
 			t.Fatal(p, err)
+		}
+	})
+}
+
+func TestSources(t *testing.T) {
+	ctx := context.Background()
+	t.Run("decoding", func(t *testing.T) {
+		src := `{"id":"src_1","name":"Stripe","provider":"stripe","consumer_id":"con_1","consumer":{"id":"con_1","external_id":"internal","name":"社内"},"status":"active","url":"https://api.test/in/abc","secret_hint":"whse…1234","config":{"event_type":"inbound"},"held":3,"created_at":1,"updated_at":2}`
+		req := `{"items":[{"id":"sreq_1","at":5,"method":"PUT","status":"rejected","response_status":401,"reason":"invalid signature","message_id":null,"event_type":null,"content_type":"application/json","size":12,"headers":{"stripe-signature":"t=1"},"processed_at":7,"reprocessable":true}],"next_cursor":null}`
+		msg := `{"id":"msg_1","event_type":"invoice.paid","consumer":{"id":"con_1","external_id":"internal","name":""},"created_at":1,"status":"success","idempotency_key":"src_1:evt_1","payload":{},"deliveries":[],"source":{"id":"src_1","name":"Stripe","request_id":"sreq_1"}}`
+		f := newFakeAPI(t, rawReply(201, src), rawReply(200, req), rawReply(200, msg), rawReply(200, `{"id":"msg_2","source":null}`))
+		c, _ := testClient(t, f)
+		s, err := c.Sources.Create(ctx, SourceCreateParams{Name: "Stripe", Provider: SourceStripe, ConsumerID: "con_1"})
+		want := Source{ID: "src_1", Name: "Stripe", Provider: SourceStripe, ConsumerID: "con_1", Consumer: ConsumerRef{ID: "con_1", ExternalID: "internal", Name: "社内"},
+			Status: SourceActive, URL: "https://api.test/in/abc", SecretHint: String("whse…1234"), Config: SourceConfig{EventType: "inbound"}, Held: 3, CreatedAt: 1, UpdatedAt: 2}
+		if err != nil || !reflect.DeepEqual(*s, want) {
+			t.Fatal(s, err)
+		}
+		p, err := c.Sources.ListRequests(ctx, "src_1", &SourceRequestListParams{Limit: 10, Status: SourceRequestRejected})
+		if err != nil || len(p.Items) != 1 || p.NextCursor != "" || f.Calls()[1].Path != "/v1/sources/src_1/requests" || f.Calls()[1].Query != "limit=10&status=rejected" {
+			t.Fatal(p, err)
+		}
+		r := p.Items[0]
+		if r.Status != SourceRequestRejected || r.ResponseStatus != 401 || *r.Reason != "invalid signature" || r.MessageID != nil || r.EventType != nil ||
+			*r.ContentType != "application/json" || r.Size != 12 || r.Headers["stripe-signature"] != "t=1" ||
+			r.Method != "PUT" || r.ProcessedAt == nil || *r.ProcessedAt != 7 || !r.Reprocessable {
+			t.Fatal(r)
+		}
+		m, err := c.Messages.Get(ctx, "msg_1")
+		if err != nil || m.Source == nil || *m.Source != (SourceRef{ID: "src_1", Name: "Stripe", RequestID: "sreq_1"}) {
+			t.Fatal(m, err)
+		}
+		m, err = c.Messages.Get(ctx, "msg_2")
+		if err != nil || m.Source != nil {
+			t.Fatal(m, err)
+		}
+	})
+
+	t.Run("sources and requests: List gives one page; ListAll walks every page", func(t *testing.T) {
+		f := newFakeAPI(t,
+			jsonReply(200, map[string]any{"items": []any{map[string]any{"id": "src_1"}}, "next_cursor": "c1"}),
+			jsonReply(200, map[string]any{"items": []any{map[string]any{"id": "src_1"}}, "next_cursor": "c1"}),
+			jsonReply(200, map[string]any{"items": []any{map[string]any{"id": "src_2"}}, "next_cursor": nil}),
+			jsonReply(200, map[string]any{"items": []any{map[string]any{"id": "sreq_2"}}, "next_cursor": "r1"}),
+			jsonReply(200, map[string]any{"items": []any{map[string]any{"id": "sreq_1"}}, "next_cursor": nil}),
+		)
+		c, _ := testClient(t, f)
+		p, err := c.Sources.List(ctx, &SourceListParams{Limit: 1})
+		if err != nil || len(p.Items) != 1 || p.NextCursor != "c1" {
+			t.Fatal(p, err)
+		}
+		var ids []string
+		it := c.Sources.ListAll(&SourceListParams{Limit: 1})
+		for it.Next(ctx) {
+			ids = append(ids, it.Current().ID)
+		}
+		ri := c.Sources.ListAllRequests("src_1", &SourceRequestListParams{Cursor: "start"})
+		for ri.Next(ctx) {
+			ids = append(ids, ri.Current().ID)
+		}
+		if it.Err() != nil || ri.Err() != nil || !reflect.DeepEqual(ids, []string{"src_1", "src_2", "sreq_2", "sreq_1"}) {
+			t.Fatal(ids, it.Err(), ri.Err())
+		}
+		var got []string
+		for _, cl := range f.Calls() {
+			got = append(got, cl.Path+"?"+cl.Query)
+		}
+		want := []string{"/v1/sources?limit=1", "/v1/sources?limit=1", "/v1/sources?cursor=c1&limit=1", "/v1/sources/src_1/requests?cursor=start", "/v1/sources/src_1/requests?cursor=r1"}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatal(got)
+		}
+	})
+
+	t.Run("create is not retried on a 5xx; the others are", func(t *testing.T) {
+		unavailable := jsonReply(503, map[string]any{"error": "unavailable", "message": "x"})
+		ok := jsonReply(200, map[string]any{"id": "src_1"})
+		f := newFakeAPI(t, unavailable, unavailable, ok, unavailable, ok, unavailable, jsonReply(204, nil), unavailable, ok, unavailable, jsonReply(200, map[string]any{"items": []any{}}))
+		c, _ := testClient(t, f, WithMaxRetries(1))
+		if _, err := c.Sources.Create(ctx, SourceCreateParams{Name: "a", Provider: SourceNone, ConsumerID: "con_1"}); !errors.Is(err, ErrAPI) {
+			t.Fatal(err)
+		}
+		if _, err := c.Sources.Get(ctx, "src_1"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Sources.Update(ctx, "src_1", SourceUpdateParams{Name: String("b")}); err != nil {
+			t.Fatal(err)
+		}
+		if err := c.Sources.Delete(ctx, "src_1"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Sources.RemoveSecret(ctx, "src_1"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Sources.ListRequests(ctx, "src_1", nil); err != nil {
+			t.Fatal(err)
+		}
+		if n := len(f.Calls()); n != 11 {
+			t.Fatal(n)
+		}
+	})
+
+	t.Run("reprocess: not retried on a 5xx; a request that cannot be reprocessed is ErrConflict", func(t *testing.T) {
+		f := newFakeAPI(t, jsonReply(503, map[string]any{"error": "unavailable", "message": "x"}), jsonReply(409, map[string]any{"error": "conflict", "message": "x"}))
+		c, _ := testClient(t, f, WithMaxRetries(1))
+		if _, err := c.Sources.ReprocessRequest(ctx, "src_1", "sreq_1"); !errors.Is(err, ErrAPI) || len(f.Calls()) != 1 {
+			t.Fatal(err, len(f.Calls()))
+		}
+		if _, err := c.Sources.ReprocessRequest(ctx, "src_1", "sreq_1"); !errors.Is(err, ErrConflict) {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("plan limit", func(t *testing.T) {
+		f := newFakeAPI(t, jsonReply(402, map[string]any{"error": "plan_limit", "message": "limit", "fields": map[string]any{"sources": "up to 1"}}))
+		c, _ := testClient(t, f)
+		_, err := c.Sources.Create(ctx, SourceCreateParams{Name: "a", Provider: SourceNone, ConsumerID: "con_1"})
+		var e *Error
+		if !errors.Is(err, ErrPlanLimit) || !errors.As(err, &e) || e.Fields["sources"] != "up to 1" {
+			t.Fatal(err)
 		}
 	})
 }
